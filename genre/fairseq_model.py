@@ -1,22 +1,25 @@
+%%writefile fairseq_model.py
 # Copyright (c) Facebook, Inc. and its affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import logging
 import os
-from typing import List, Dict
+from collections import defaultdict
+from typing import Dict, List
 
 import torch
+from fairseq import search, utils
 from fairseq.models.bart import BARTHubInterface, BARTModel
-
-from genre.utils import post_process_wikidata
+from omegaconf import open_dict
 
 logger = logging.getLogger(__name__)
 
 
-class _GENREHubInterface:
+class GENREHubInterface(BARTHubInterface):
     def sample(
         self,
         sentences: List[str],
@@ -41,7 +44,8 @@ class _GENREHubInterface:
             max_len_b=max_len_b,
             **kwargs,
         )
-
+        #print("batched_hypos", batched_hypos)
+        
         outputs = [
             [
                 {"text": self.decode(hypo["tokens"]), "score": hypo["score"]}
@@ -49,10 +53,42 @@ class _GENREHubInterface:
             ]
             for hypos in batched_hypos
         ]
+        if text_to_id:
+            outputs = [
+                [{**hypo, "id": text_to_id(hypo["text"])} for hypo in hypos]
+                for hypos in outputs
+            ]
 
-        outputs = post_process_wikidata(
-            outputs, text_to_id=text_to_id, marginalize=marginalize
-        )
+            if marginalize:
+                for (i, hypos), hypos_tok in zip(enumerate(outputs), batched_hypos):
+                    outputs_dict = defaultdict(list)
+                    for hypo, hypo_tok in zip(hypos, hypos_tok):
+                        outputs_dict[hypo["id"]].append(
+                            {**hypo, "len": len(hypo_tok["tokens"])}
+                        )
+
+                    outputs[i] = sorted(
+                        [
+                            {
+                                "id": _id,
+                                "texts": [hypo["text"] for hypo in hypos],
+                                "scores": torch.stack(
+                                    [hypo["score"] for hypo in hypos]
+                                ),
+                                "score": torch.stack(
+                                    [
+                                        hypo["score"]
+                                        * hypo["len"]
+                                        / (hypo["len"] ** marginalize_lenpen)
+                                        for hypo in hypos
+                                    ]
+                                ).logsumexp(-1),
+                            }
+                            for _id, hypos in outputs_dict.items()
+                        ],
+                        key=lambda x: x["score"],
+                        reverse=True,
+                    )
 
         return outputs
 
@@ -71,12 +107,7 @@ class _GENREHubInterface:
         else:
             return tokens
 
-class GENREHubInterface(_GENREHubInterface, BARTHubInterface):
-    pass
     
-class mGENREHubInterface(_GENREHubInterface, BARTHubInterface):
-    pass
-
 class GENRE(BARTModel):
     @classmethod
     def from_pretrained(
@@ -99,6 +130,7 @@ class GENRE(BARTModel):
             **kwargs,
         )
         return GENREHubInterface(x["args"], x["task"], x["models"][0])
+
 
 class mGENRE(BARTModel):
     @classmethod
@@ -124,4 +156,4 @@ class mGENRE(BARTModel):
             sentencepiece_model=os.path.join(model_name_or_path, sentencepiece_model),
             **kwargs,
         )
-        return mGENREHubInterface(x["args"], x["task"], x["models"][0])
+        return GENREHubInterface(x["args"], x["task"], x["models"][0])
