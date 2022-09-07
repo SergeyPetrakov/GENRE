@@ -1,15 +1,11 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import copy
 import logging
 import os
 from collections import defaultdict
 from typing import Dict, List
 
+import random
+import numpy as np
 import torch
 from fairseq import search, utils
 from fairseq.models.bart import BARTHubInterface, BARTModel
@@ -18,7 +14,14 @@ from omegaconf import open_dict
 logger = logging.getLogger(__name__)
 
 
+
+
 class GENREHubInterface(BARTHubInterface):
+    def set_seed(self, seed):
+        random.seed(seed)
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+    
     def sample(
         self,
         sentences: List[str],
@@ -29,12 +32,17 @@ class GENREHubInterface(BARTHubInterface):
         marginalize_lenpen=0.5,
         max_len_a=1024,
         max_len_b=1024,
+        seed=13,
         **kwargs,
     ) -> List[str]:
+        
+        
         if isinstance(sentences, str):
             return self.sample([sentences], beam=beam, verbose=verbose, **kwargs)[0]
         tokenized_sentences = [self.encode(sentence) for sentence in sentences]
-
+        
+        self.set_seed(seed)
+        
         batched_hypos = self.generate(
             tokenized_sentences,
             beam,
@@ -43,7 +51,7 @@ class GENREHubInterface(BARTHubInterface):
             max_len_b=max_len_b,
             **kwargs,
         )
-        #print("batched_hypos", batched_hypos)
+    
         
         outputs = [
             [
@@ -155,4 +163,5 @@ class mGENRE(BARTModel):
             sentencepiece_model=os.path.join(model_name_or_path, sentencepiece_model),
             **kwargs,
         )
+        
         return GENREHubInterface(x["args"], x["task"], x["models"][0])
