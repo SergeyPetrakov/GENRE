@@ -128,6 +128,7 @@ def get_entity_spans_post_processing(sentences):
 def _get_entity_spans(
     model, input_sentences, prefix_allowed_tokens_fn, redirections=None,
 ):
+    self.model.train()
     output_sentences = model.sample(
         get_entity_spans_pre_processing(input_sentences),
         prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
