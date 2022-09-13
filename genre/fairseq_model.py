@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class GENREHubInterface(BARTHubInterface):
+    
     def set_seed(self, seed):
         random.seed(seed)
         torch.manual_seed(seed)
@@ -36,10 +37,10 @@ class GENREHubInterface(BARTHubInterface):
         **kwargs,
     ) -> List[str]:
         
-        
         if isinstance(sentences, str):
             return self.sample([sentences], beam=beam, verbose=verbose, **kwargs)[0]
         tokenized_sentences = [self.encode(sentence) for sentence in sentences]
+        
         
         self.set_seed(seed)
         
@@ -60,6 +61,7 @@ class GENREHubInterface(BARTHubInterface):
             ]
             for hypos in batched_hypos
         ]
+        
         if text_to_id:
             outputs = [
                 [{**hypo, "id": text_to_id(hypo["text"])} for hypo in hypos]
@@ -96,6 +98,7 @@ class GENREHubInterface(BARTHubInterface):
                         key=lambda x: x["score"],
                         reverse=True,
                     )
+        
 
         return outputs
 
@@ -103,6 +106,7 @@ class GENREHubInterface(BARTHubInterface):
         return super(BARTHubInterface, self).generate(*args, **kwargs)
 
     def encode(self, sentence) -> torch.LongTensor:
+        
         tokens = super(BARTHubInterface, self).encode(sentence)
         tokens[
             tokens >= len(self.task.target_dictionary)
